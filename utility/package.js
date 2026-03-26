@@ -4,6 +4,10 @@ import { getRestClient } from '@existdb/node-exist'
 import { readXquery } from './xq.js'
 
 /**
+ * @typedef {import('./exist-api.js').ApiClient} ApiClient
+ */
+
+/**
  * @typedef {import('@existdb/node-exist').NodeExistXmlRpcClient} NodeExistXmlRpcClient
  */
 
@@ -186,6 +190,47 @@ export async function installFromRepo (
   const { pages } = await db.queries.readAll(queryInstallFromRepo, { variables })
   const rawResult = pages.toString()
   return JSON.parse(rawResult)
+}
+
+/**
+ * Query installed package meta via exist-api REST endpoint.
+ * Returns the same shape as getInstalledPackageMeta: { version, name }
+ * @param {object} api exist-api client
+ * @param {string} nameOrAbbrev
+ * @returns {Promise<{version: string?, name: string?}>}
+ */
+export async function getInstalledPackageMetaViaApi (api, nameOrAbbrev) {
+  const result = await api.getPackage(nameOrAbbrev)
+  if (result.error) {
+    // Package not found — return empty version/name (same as XQuery fallback)
+    return { version: null, name: null }
+  }
+  return { version: result.version || null, name: result.name || null }
+}
+
+/**
+ * Install a package via exist-api REST endpoint.
+ * Returns the same shape as installFromRepo: { success, result }
+ * @param {object} api exist-api client
+ * @param {object} options
+ * @param {string} options.packageName
+ * @param {string} options.version
+ * @param {string} options.registryUrl
+ * @returns {Promise<{success: boolean, result: object|string}>}
+ */
+export async function installFromRepoViaApi (api, { packageName, version, registryUrl }) {
+  if (!packageName) {
+    return { success: false, result: 'package name missing' }
+  }
+  const registryFindUrl = registryUrl + '/' + existRepoSearchEndpoint
+  const result = await api.installPackage(packageName, registryFindUrl, version || '')
+  if (result.error) {
+    return { success: false, result: result.error.description || JSON.stringify(result.error) }
+  }
+  return {
+    success: result.success !== false,
+    result: result.result || result
+  }
 }
 
 export function extractPackageMeta (contents) {
