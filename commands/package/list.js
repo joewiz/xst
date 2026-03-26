@@ -1,5 +1,6 @@
 import chalk from 'chalk'
 import { getXmlRpcClient } from '@existdb/node-exist'
+import { getApiClient } from '../../utility/connection.js'
 import { multiSort } from '../../utility/sorter.js'
 import { padReducer } from '../../utility/padding.js'
 import { getDateFormatter } from '../../utility/colored-date.js'
@@ -593,9 +594,36 @@ export const builder = yargs => {
     .conflicts('a', 'l')
 }
 
+/**
+ * list installed packages via exist-api REST endpoint
+ * @param {object} api exist-api client
+ * @param {ListOptions} options the options
+ * @returns {Number} exit code
+ */
+async function listPackagesViaApi (api, options) {
+  const packages = await api.listPackages()
+  if (packages.error) {
+    throw Error(packages.error.description || JSON.stringify(packages.error))
+  }
+  if (options.raw) {
+    return console.log(JSON.stringify({ packages }))
+  }
+
+  const filteredPkgs = packages.filter(getFilter(options))
+  filteredPkgs
+    .sort(getSorter(options))
+    .forEach(getItemFormatter(packages, options))
+  return 0
+}
+
 export async function handler (argv) {
   if (argv.help) {
     return 0
+  }
+
+  const api = await getApiClient(argv)
+  if (api) {
+    return await listPackagesViaApi(api, argv)
   }
 
   const db = getXmlRpcClient(argv.connectionOptions)

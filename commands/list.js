@@ -1,6 +1,7 @@
 import chalk from 'chalk'
 import { getXmlRpcClient, getMimeType } from '@existdb/node-exist'
 import { readXquery } from '../utility/xq.js'
+import { getApiClient } from '../utility/connection.js'
 import { getDateFormatter } from '../utility/colored-date.js'
 import { multiSort } from '../utility/sorter.js'
 import { recursivePadReducer } from '../utility/padding.js'
@@ -580,6 +581,66 @@ export const builder = yargs => {
  * @param {ListOptions} argv options
  * @returns {Number} exit code
  */
+/**
+ * list elements via exist-api REST endpoint
+ * @param {object} api exist-api client
+ * @param {String} collection path
+ * @param {ListOptions} options command line options
+ */
+async function lsViaApi (api, collection, options) {
+  const { glob, long, tree, recursive, depth } = options
+  const json = await api.listCollection(collection, {
+    recursive: Boolean(tree || recursive),
+    depth,
+    glob,
+    collectionsOnly: options['collections-only']
+  })
+  if (json.error) {
+    if (options.debug) {
+      console.error(json.error)
+    }
+    throw Error(json.error.description || json.error)
+  }
+  if (options.debug) {
+    console.log(json)
+  }
+  if (options.raw) {
+    return console.log(JSON.stringify(json))
+  }
+
+  const list = json.children
+  const blocks = []
+
+  if (long) {
+    const paddings = getPaddings(list)
+    blocks.push(getModeFormatter(options))
+    blocks.push(getOwnerFormatter(options, paddings))
+    blocks.push(getGroupFormatter(options, paddings))
+    blocks.push(getSizeFormatter(options, paddings))
+    blocks.push(getDateFormatter(options, 'modified'))
+  }
+
+  const nameFmt = getNameFormatter(options)
+  if (tree) {
+    blocks.push(getTreeFormatter(nameFmt))
+  } else {
+    blocks.push(nameFmt)
+  }
+
+  const sortItemList = getSorter(options)
+  const renderItem = getItemRenderer(options, blocks)
+  const renderList = getListRenderer(options, renderItem, sortItemList)
+
+  if (recursive) {
+    return renderList(json, false)
+  }
+
+  if (tree) {
+    renderItem(json, '', false, 0)
+  }
+  renderList(list)
+}
+
 export async function handler (argv) {
   if (argv.help) {
     return 0
@@ -590,6 +651,11 @@ export async function handler (argv) {
   if (glob.includes('**')) {
     console.error('Invalid value for option "glob"; "**" is not supported yet')
     return 1
+  }
+
+  const api = await getApiClient(argv)
+  if (api) {
+    return lsViaApi(api, collection, argv)
   }
 
   const db = getXmlRpcClient(argv.connectionOptions)

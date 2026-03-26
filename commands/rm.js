@@ -1,5 +1,6 @@
 import { getXmlRpcClient } from '@existdb/node-exist'
 import { readXquery } from '../utility/xq.js'
+import { getApiClient } from '../utility/connection.js'
 
 /**
  * @typedef { import("@existdb/node-exist").NodeExist } NodeExist
@@ -122,21 +123,55 @@ export const builder = yargs => yargs.options(options)
  * @param {RemoveOptions} argv options
  * @returns {Number} exit code
  */
+/**
+ * remove paths via exist-api REST endpoints
+ * @param {object} api exist-api client
+ * @param {string[]} paths paths to remove
+ * @param {object} options command line options
+ */
+async function rmViaApi (api, paths, options) {
+  const { recursive, force } = options
+  for (const path of paths) {
+    // First check if it's a collection by trying to list it
+    const listing = await api.listCollection(path, {})
+    const isCollection = listing.type === 'collection'
+
+    let result
+    if (isCollection) {
+      if (!recursive) {
+        console.error('✘ ' + path + ' - is a collection, but the recursive option is not set')
+        continue
+      }
+      const params = new URLSearchParams({ path })
+      if (force) params.set('force', 'true')
+      result = await api.remove(path, { isCollection: true, force })
+    } else {
+      result = await api.remove(path, { isCollection: false })
+    }
+
+    if (result.error) {
+      console.error('✘ ' + path + ' - ' + (result.error.description || result.error))
+    } else {
+      console.log('✔︎ ' + path)
+    }
+  }
+}
+
 export async function handler (argv) {
   if (argv.help) {
     return 0
   }
   const { /* glob, */ paths, connectionOptions } = argv
 
-  // if (glob.includes('**')) {
-  //   console.error('Invalid value for option "glob"; "**" is not supported yet')
-  //   return 1
-  // }
-
   const normalized = paths.map(normalizePath)
 
   if (guardProtectedPaths(normalized)) {
     return 1
+  }
+
+  const api = await getApiClient(argv)
+  if (api) {
+    return rmViaApi(api, normalized, argv)
   }
 
   const db = getXmlRpcClient(connectionOptions)

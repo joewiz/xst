@@ -12,6 +12,7 @@
 import { readOptionsFromEnv } from '@existdb/node-exist'
 import { defaultConnectionOptions } from '@existdb/node-exist/util/connect.js'
 import { getAccountInfo, AdminGroup } from '../utility/account.js'
+import { probeExistApi, createApiClient } from '../utility/exist-api.js'
 import { findUpSync } from 'find-up-simple'
 import { loadEnvFile } from 'node:process'
 
@@ -42,7 +43,26 @@ export function readConnection (argv) {
     console.error(`Connecting to ${protocol}//${host}:${port} as ${user}`)
   }
   argv.connectionOptions = connectionOptions
+
+  // Probe for exist-api availability (non-blocking — stores promise)
+  argv._existApiProbe = probeExistApi(connectionOptions)
+
   return argv
+}
+
+/**
+ * Check if exist-api is available and return a client if so.
+ * Call this in command handlers that support the REST backend.
+ * @param {object} argv command arguments with _existApiProbe
+ * @returns {Promise<object|null>} exist-api client or null
+ */
+export async function getApiClient (argv) {
+  const available = await argv._existApiProbe
+  if (!available) return null
+  if (argv.verbose) {
+    console.error('Using exist-api REST backend')
+  }
+  return createApiClient(argv.connectionOptions)
 }
 
 /**
